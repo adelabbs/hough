@@ -14,11 +14,13 @@ import math
 
 # -----------------------------------------------
 # Functions from Assignment 2
-from gradient import discreteNonMaximaSuppression, getGaussianKernel, getGradient, myImageFilter, naiveNonMaximaSuppression, zeroPadImage
+from gradient import discreteNonMaximaSuppression, getGaussianKernel, getGradient, myImageFilter, naiveNonMaximaSuppression
 # -----------------------------------------------
 
 DEBUG = False
-CANNY = True
+CANNY = False
+RHO_RES = 1
+THETA_RES = 1
 
 
 def readImage(filename):
@@ -51,11 +53,12 @@ def myHoughTransform(gradientMagnitude, rhoRes=1, thetaRes=1):
 
     for y in range(height):
         for x in range(width):
-            if gradientMagnitude[y][x] > 0:  # select edge pixels
+            if gradientMagnitude[y][x] > 127:  # select edge pixels
                 for i in range(nThetas):
                     rho = math.ceil(x * cos[i] + y * sin[i])
                     if rho >= 0:  # ignore negative rho values
-                        hough[rho][i] += 1
+                        j = rho // rhoRes
+                        hough[j][i] += 1
 
     return hough
 
@@ -109,22 +112,22 @@ def findEndPoints(rho, theta, height, width):
         else:
             if p < 0 and p < height:
                 y0 = 0
-                x0 = round((y0 - p) / m)
+                x0 = math.floor((y0 - p) / m)
             elif p < height:
                 x0 = 0
-                y0 = round(p)
+                y0 = math.floor(p)
             else:
                 y0 = height - 1
-                x0 = round((y0 - p) / m)
+                x0 = math.floor((y0 - p) / m)
 
             x1 = width - 1
-            y1 = round(m * x1 + p)
+            y1 = math.floor(m * x1 + p)
             if y1 >= height:
                 y1 = height - 1
-                x1 = round((y1 - p) / m)
+                x1 = math.floor((y1 - p) / m)
             elif y1 < 0:
                 y1 = 0
-                x1 = round((y1 - p) / m)
+                x1 = math.floor((y1 - p) / m)
 
     return (x0, y0), (x1, y1)
 
@@ -138,8 +141,6 @@ def drawLines(gradient, lines):
         A, B = findEndPoints(rho, theta, height, width)
         if DEBUG:
             print(f" Found {A} and {B}")
-        output[A[1], A[0], :] = [0, 0, 255]
-        output[B[1], B[0], :] = [0, 0, 255]
         output = cv.line(output, A, B, (0, 0, 255))
 
     return output
@@ -150,9 +151,7 @@ def processImage(filename, data="./", out="./"):
     print(f"Processing {filename}...")
     if filename.endswith("jpg"):
         img0 = readImage(os.path.join(data, filename))
-        print(f"Image dimensions : {img0.shape}")
-        writeImage(img0, os.path.join(out, filename+"_greyscale.jpg"))
-
+        filename = os.path.splitext(filename)[0]
         print(" Computing gradient magnitude")
         if CANNY:
             gradient = cv.Canny(image=img0, threshold1=100, threshold2=200)
@@ -162,16 +161,18 @@ def processImage(filename, data="./", out="./"):
             img = myImageFilter(img0, h)
             gradient, orientation = getGradient(img)
             gradient = discreteNonMaximaSuppression(gradient, orientation)
-        writeImage(gradient, os.path.join(out, filename+"_gradient.jpg"))
 
         print(" Computing hough transform")
-        hough = myHoughTransform(gradient)
+
+        rhoRes = RHO_RES
+        thetaRes = THETA_RES
+        hough = myHoughTransform(gradient, rhoRes, thetaRes)
         hough = rescaleIntensities(hough)
         writeImage(hough, os.path.join(out, filename+"_hough.jpg"))
 
-        print(" Finding top-n lines")
         nLines = 10
-        lines = myHoughLines(hough, nLines)
+        print(f" Finding top-n={nLines} lines")
+        lines = myHoughLines(hough, nLines, rhoRes, thetaRes)
 
         print(" Drawing results")
         output = drawLines(gradient, lines)
